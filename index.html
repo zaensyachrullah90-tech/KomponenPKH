@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>PKH Secure Dashboard - GitHub Edition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { background: linear-gradient(135deg, #09090b, #1e1b4b, #0f172a); background-attachment: fixed; font-family: 'Inter', 'Segoe UI', sans-serif; }
+    .glass-panel { background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+    .custom-scrollbar::-webkit-scrollbar { height: 10px; width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.3); border-radius: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.6); border-radius: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: rgba(99, 102, 241, 1); }
+    .table-row-hover:hover { background: rgba(99, 102, 241, 0.15); }
+    .sticky-col { position: sticky; left: 0; background: #13172e; z-index: 20; border-right: 1px solid rgba(255,255,255,0.1); }
+    .sticky-header-col { position: sticky; left: 0; background: #0b0f19; z-index: 30; border-right: 1px solid rgba(255,255,255,0.1); }
+    @keyframes fadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    .modal-animate { animation: fadeIn 0.2s ease-out forwards; }
+    @media print {
+      body * { visibility: hidden; }
+      #rekap-print-area, #rekap-print-area * { visibility: visible; }
+      #rekap-print-area { position: absolute; left: 0; top: 0; width: 100%; color: black; background: white; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body class="text-slate-100 min-h-screen p-2 md:p-5 overflow-hidden">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useMemo } = React;
+
+    // ====================================================================
+    // MASUKKAN URL WEB APP GOOGLE APPS SCRIPT ANDA DI BAWAH INI
+    // ====================================================================
+    const API_URL = "https://script.google.com/macros/s/AKfycbwstmXAMcbx0VIvxTdflkGTkGc10eINhKz6hOvbmgsMyzdK3eW7pYEC1b95xPIVsMMA/exec";
+
+    function App() {
+      const [data, setData] = useState([]);
+      const [loading, setLoading] = useState(true);
+      
+      // Keamanan menggunakan PIN
+      const [isAdmin, setIsAdmin] = useState(false);
+      const [adminPin, setAdminPin] = useState("");
+
+      const [filterKabupaten, setFilterKabupaten] = useState("Semua");
+      const [searchTerm, setSearchTerm] = useState("");
+      const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
+      const [currentPage, setCurrentPage] = useState(1);
+      const itemsPerPage = 10;
+
+      const [isModalOpen, setIsModalOpen] = useState(false);
+      const [editFormData, setEditFormData] = useState(null);
+      const [isSubmitting, setIsSubmitting] = useState(false);
+
+      const [isRekapOpen, setIsRekapOpen] = useState(false);
+      const [rekapMetrics, setRekapMetrics] = useState(['BUMIL', 'AUD', 'SD', 'SMP', 'SMA', 'LANSIA', 'DISABILITAS']);
+
+      const komponenKPM = ['BUMIL', 'AUD', 'SD', 'SMP', 'SMA', 'LANSIA', 'DISABILITAS'];
+
+      // Mengambil Data menggunakan FETCH (Metode Baru)
+      useEffect(() => {
+        fetch(API_URL)
+          .then(res => res.json())
+          .then(resData => {
+            setData(resData);
+            setLoading(false);
+          })
+          .catch(err => {
+            alert("Gagal terhubung ke Database Google Sheets.");
+            setLoading(false);
+          });
+      }, []);
+
+      const tableHeaders = useMemo(() => data.length === 0 ? [] : Object.keys(data[0]), [data]);
+      const listKabupaten = useMemo(() => ["Semua", ...new Set(data.map(item => item['KABUPATEN/KOTA']).filter(Boolean))], [data]);
+
+      const processedData = useMemo(() => {
+        let filtered = data.filter(item => {
+          const matchKab = filterKabupaten === "Semua" || item['KABUPATEN/KOTA'] === filterKabupaten;
+          const matchSearch = Object.values(item).some(val => String(val).toLowerCase().includes(searchTerm.toLowerCase()));
+          return matchKab && matchSearch;
+        });
+
+        if (sortConfig.key !== null) {
+          filtered.sort((a, b) => {
+            let valA = a[sortConfig.key] ?? ""; let valB = b[sortConfig.key] ?? "";
+            const isNumA = !isNaN(valA) && valA !== ""; const isNumB = !isNaN(valB) && valB !== "";
+            if (isNumA && isNumB) return sortConfig.direction === 'asc' ? Number(valA) - Number(valB) : Number(valB) - Number(valA);
+            return sortConfig.direction === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
+          });
+        }
+        return filtered;
+      }, [data, filterKabupaten, searchTerm, sortConfig]);
+
+      useEffect(() => { setCurrentPage(1); }, [filterKabupaten, searchTerm, sortConfig]);
+      const totalPages = Math.ceil(processedData.length / itemsPerPage) || 1;
+      const paginatedData = processedData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+      const handleSort = (key) => setSortConfig({ key, direction: sortConfig.key === key && sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+
+      const dataRekap13Kab = useMemo(() => {
+        const kabMap = {};
+        data.forEach(row => {
+          const kab = row['KABUPATEN/KOTA'] || "TIDAK DIKETAHUI";
+          if(!kabMap[kab]) { kabMap[kab] = { name: kab, totalSDM: 0 }; komponenKPM.forEach(k => kabMap[kab][k] = 0); }
+          kabMap[kab].totalSDM += 1;
+          komponenKPM.forEach(k => { kabMap[kab][k] += (parseInt(row[k]) || 0); });
+        });
+        return Object.values(kabMap).sort((a, b) => a.name.localeCompare(b.name));
+      }, [data]);
+
+      // FUNGSI API BARU (FETCH POST)
+      const executeAPI = (payload, successMsg) => {
+        fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        })
+        .then(res => res.text())
+        .then(res => {
+          if(res.includes("SUKSES")) {
+            alert(successMsg);
+            window.location.reload();
+          } else {
+            alert(res);
+            setIsSubmitting(false);
+            setLoading(false);
+          }
+        }).catch(err => {
+          alert("Koneksi gagal.");
+          setIsSubmitting(false);
+          setLoading(false);
+        });
+      };
+
+      const handleDelete = (kabupaten, namaTarget) => {
+        if(!isAdmin) return alert("Anda harus login sebagai Admin untuk menghapus data.");
+        if(!confirm(`PERINGATAN!\nAnda yakin menghapus permanen data:\n${namaTarget} ?`)) return;
+        setLoading(true);
+        executeAPI({ action: "delete", kabupaten: kabupaten, namaTarget: namaTarget, pin: adminPin }, "Data berhasil dihapus!");
+      };
+
+      const openEditModal = (row) => { setEditFormData({...row}); setIsModalOpen(true); };
+      const handleSaveEdit = (e) => {
+        e.preventDefault();
+        if(!confirm("Simpan perubahan data ini?")) return;
+        setIsSubmitting(true);
+        executeAPI({ action: "update", kabupaten: editFormData['KABUPATEN/KOTA'], namaTarget: editFormData['NAMA'], formData: editFormData, pin: adminPin }, "Data berhasil diperbarui!");
+      };
+
+      const handleLoginAdmin = () => {
+        if (isAdmin) {
+          setIsAdmin(false); setAdminPin(""); alert("Berhasil Logout.");
+        } else {
+          const pin = prompt("Masukkan PIN Rahasia Admin:");
+          if (pin) { setAdminPin(pin); setIsAdmin(true); alert("Sistem mengenali Anda. Hak akses diaktifkan sementara."); }
+        }
+      };
+
+      const exportToCSV = () => {
+        if (processedData.length === 0) return alert("Tidak ada data untuk diekspor!");
+        const headers = Object.keys(processedData[0]);
+        const csvRows = [headers.join(',')];
+        processedData.forEach(row => {
+          const values = headers.map(header => `"${String(row[header] == null ? "" : row[header]).replace(/"/g, '""')}"`);
+          csvRows.push(values.join(','));
+        });
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = `Rekap_SDM_${filterKabupaten.replace(/\s+/g, '_')}.csv`; link.click();
+      };
+
+      if (loading) return (
+        <div className="flex h-screen flex-col items-center justify-center space-y-4">
+          <div className="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+          <div className="text-xl font-bold text-indigo-300 animate-pulse">SINKRONISASI DATABASE...</div>
+        </div>
+      );
+
+      return (
+        <div className="h-[98vh] flex flex-col mx-auto w-full max-w-[100vw] relative">
+          
+          {/* Modal Rekap 13 Kab */}
+          {isRekapOpen && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+              <div id="rekap-print-area" className="glass-panel w-full max-w-6xl max-h-[95vh] rounded-2xl flex flex-col modal-animate border border-emerald-500/50 bg-[#0f172a]">
+                <div className="p-5 border-b border-white/10 flex justify-between items-center bg-emerald-900/30 rounded-t-2xl no-print">
+                  <div>
+                    <h2 className="text-2xl font-black text-emerald-400 tracking-wider uppercase">Rekapitulasi 13 Kabupaten/Kota</h2>
+                  </div>
+                  <div className="flex gap-4 items-center">
+                    <button onClick={() => window.print()} className="bg-rose-600 hover:bg-rose-500 text-white px-5 py-2 rounded-lg text-sm font-bold shadow-lg flex gap-2 items-center">Cetak PDF</button>
+                    <button onClick={() => setIsRekapOpen(false)} className="bg-slate-800 hover:bg-slate-700 text-white p-2 rounded-full font-bold text-xl w-10 h-10 flex items-center justify-center">&times;</button>
+                  </div>
+                </div>
+                <div className="p-4 bg-[#0b0f19] border-b border-white/5 no-print">
+                   <div className="flex flex-wrap gap-4 items-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest bg-slate-800 px-3 py-1.5 rounded">Filter Komponen:</span>
+                    {komponenKPM.map(m => (
+                      <label key={m} className="flex items-center gap-2 cursor-pointer bg-slate-800/50 px-3 py-1.5 rounded border border-slate-700 hover:border-emerald-500 transition">
+                        <input type="checkbox" checked={rekapMetrics.includes(m)} onChange={() => setRekapMetrics(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m])} className="accent-emerald-500 h-4 w-4" />
+                        <span className="text-sm font-bold text-slate-200">{m}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto custom-scrollbar p-4 bg-white md:bg-transparent">
+                  <table className="w-full text-left border-collapse min-w-max text-black md:text-white">
+                    <thead className="bg-slate-200 md:bg-[#0b0f19] sticky top-0 border-b border-slate-300 md:border-slate-700 z-10">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-widest">Kabupaten / Kota</th>
+                        <th className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center">Total SDM</th>
+                        {rekapMetrics.map(m => <th key={m} className="px-6 py-4 text-xs font-black uppercase tracking-widest text-center">{m}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-300 md:divide-slate-800">
+                      {dataRekap13Kab.map(kab => (
+                        <tr key={kab.name} className="hover:bg-slate-100 md:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-sm md:text-slate-300">{kab.name}</td>
+                          <td className="px-6 py-4 text-center font-black text-emerald-600 md:text-emerald-400 bg-emerald-50 md:bg-emerald-900/10">{kab.totalSDM}</td>
+                          {rekapMetrics.map(m => <td key={m} className="px-6 py-4 text-center text-sm md:text-slate-400 font-mono">{kab[m].toLocaleString('id-ID')}</td>)}
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-300 md:bg-slate-800 font-black">
+                        <td className="px-6 py-4 uppercase">GRAND TOTAL</td>
+                        <td className="px-6 py-4 text-center text-emerald-700 md:text-emerald-400">{dataRekap13Kab.reduce((sum, k) => sum + k.totalSDM, 0)}</td>
+                        {rekapMetrics.map(m => <td key={m} className="px-6 py-4 text-center md:text-white font-mono">{dataRekap13Kab.reduce((sum, k) => sum + k[m], 0).toLocaleString('id-ID')}</td>)}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Edit Asli */}
+          {isModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 no-print">
+              <div className="glass-panel w-full max-w-4xl max-h-[90vh] rounded-2xl flex flex-col modal-animate border border-indigo-500/30">
+                <div className="p-5 border-b border-white/10 flex justify-between items-center bg-indigo-900/40 rounded-t-2xl">
+                  <div>
+                    <h2 className="text-xl font-bold text-indigo-300">Formulir Update Data</h2>
+                    {!isAdmin && <p className="text-xs text-orange-400 mt-1">Mode User: Anda hanya diizinkan mengedit komponen PKH.</p>}
+                  </div>
+                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white font-bold text-xl">&times;</button>
+                </div>
+                <form onSubmit={handleSaveEdit} className="p-6 overflow-auto custom-scrollbar flex-1">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {tableHeaders.map(header => {
+                      const disabled = (header.toUpperCase() === "NAMA") || (!isAdmin && !komponenKPM.includes(header.toUpperCase()));
+                      return (
+                        <div key={header} className="flex flex-col space-y-1">
+                          <label className="text-xs font-semibold text-slate-400 uppercase tracking-wide flex justify-between">
+                            {header} {disabled && <span className="text-orange-500/70 text-[10px]">🔒 Locked</span>}
+                          </label>
+                          <input 
+                            type="text" value={editFormData[header] || ""} onChange={(e) => setEditFormData({...editFormData, [header]: e.target.value})}
+                            disabled={disabled}
+                            className={`w-full px-3 py-2 rounded-lg text-sm border focus:outline-none transition-all ${disabled ? "bg-slate-800/50 border-slate-700/50 text-slate-500 cursor-not-allowed border-dashed" : "bg-slate-900/80 border-slate-500 text-white focus:ring-2 focus:ring-indigo-500"}`}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-8 flex justify-end gap-3 pt-4 border-t border-white/10">
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition">Batal</button>
+                    <button type="submit" disabled={isSubmitting} className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold transition">
+                      {isSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Header Aplikasi */}
+          <div className="glass-panel rounded-2xl p-4 mb-3 shrink-0 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-cyan-400">DASHBOARD COMMAND</h1>
+              <div className="flex items-center gap-2 mt-1">
+                <button onClick={handleLoginAdmin} className={`px-3 py-0.5 rounded text-[10px] font-black tracking-widest uppercase cursor-pointer hover:opacity-80 transition ${isAdmin ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-orange-500/20 text-orange-400 border border-orange-500/50'}`}>
+                  {isAdmin ? '👑 KUNCI ADMIN TERBUKA (KLIK UTK LOGOUT)' : '👤 LOGIN ADMIN'}
+                </button>
+              </div>
+            </div>
+            <div className="flex gap-2 w-full md:w-auto overflow-x-auto custom-scrollbar pb-2 pt-1 px-1">
+              {listKabupaten.map(kab => (
+                <button key={kab} onClick={() => setFilterKabupaten(kab)} className={`px-4 py-2 rounded-lg text-xs md:text-sm font-bold transition-all whitespace-nowrap border ${filterKabupaten === kab ? 'bg-indigo-600 border-indigo-400 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 'bg-slate-800/60 border-slate-600 text-slate-300 hover:bg-slate-700'}`}>{kab}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Action Bar & Tabel Data Asli */}
+          <div className="glass-panel rounded-2xl p-3 mb-3 shrink-0 flex flex-col md:flex-row gap-3 items-center justify-between no-print">
+            <input type="text" placeholder="🔍 Cari data spesifik..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full md:w-1/3 bg-slate-900/60 border border-slate-600 text-white text-sm px-4 py-2 rounded-xl focus:outline-none focus:border-indigo-400 transition" />
+            
+            <div className="flex gap-4 items-center w-full md:w-auto justify-between overflow-x-auto">
+              <div className="flex items-center gap-2 bg-slate-900/80 rounded-lg p-1 border border-slate-700 whitespace-nowrap">
+                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-sm disabled:opacity-30">◀</button>
+                <span className="text-xs font-bold px-2 text-indigo-300">Hal {currentPage} / {totalPages}</span>
+                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded text-sm disabled:opacity-30">▶</button>
+              </div>
+              
+              <button onClick={() => setIsRekapOpen(true)} className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 border border-emerald-400 text-white px-5 py-1.5 rounded-xl text-sm font-black tracking-wide shadow-[0_0_10px_rgba(16,185,129,0.4)] whitespace-nowrap">
+                📊 REKAP 13 KABUPATEN
+              </button>
+
+              <button onClick={exportToCSV} className="flex items-center gap-2 bg-indigo-600/90 hover:bg-indigo-500 border border-indigo-400 text-white px-4 py-1.
